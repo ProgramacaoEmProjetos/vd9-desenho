@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+    <html lang="pt-br">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Desenho</title>
+        <style>
+
+            html, body {
+                margin: 0;
+                padding: 0;
+                background-color: bisque;
+            }
+
+            .container {
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                width: 100vw;
+                height: 100vh;
+            }
+
+            .container .tools {
+                display: flex;
+                align-items: center;
+                width: 200px;
+                height: 600px;
+                margin-right: 10px;
+            }
+
+            .container .tools .sub {
+                width: 200px;
+                height: 250px;
+                display: grid;
+                gap: 5px;
+                grid-template-columns: 97.5px 97.5px;
+                /* border: 1px solid silver;*/ 
+            }
+
+            .container .tools .sub .selected {
+                background-color: aquamarine;
+            }
+
+            .container .tools button {
+                display: inline-grid;
+                line-height: 6em;
+                font-size: 8pt;
+                border: none;
+                background-color: white;
+                border-radius: 10px;
+                box-shadow: 1px 1px 2px 0 rgba(0, 0, 0, 0.75);
+                transform: translateX(0);
+                transition: transform .5s;
+                word-wrap: break-word;
+            }
+
+            .container .tools input[type="color"],
+            .container .tools input[type="file"] {
+                display: none;
+            }
+
+            .container .tools button:hover {
+                transform: translateX(-5px);
+                transition: transform .5s;
+            }
+
+            .canva-sub {
+                width: 800px;
+                height: 600px;
+                border: 1px solid silver;
+                border-radius: 10px;
+                overflow: hidden;
+            }
+
+            #canva {
+                position: absolute;
+                width: 800px;
+                height: 600px;
+                border-radius: 10px;
+            }
+
+            #canva-tmp {
+                position: relative;
+                width: 800px;
+                height: 600px;
+                border-radius: 10px;
+                cursor: crosshair;
+            }
+
+        </style>
+    </head>
+    <body>
+
+        <div class="container">
+
+            <div class="tools">
+
+                <div class="sub">
+                    <button class="selected" data-tool-id="0">Pincel</button>
+                    <button data-tool-id="1">Retangulo</button>
+                    <button data-tool-id="2">Linha</button>
+                    <button data-tool-id="3">Circulo</button>
+                    <button data-tool-id="4">Preencher</button>
+                    <button data-tool-id="5">Borracha</button>
+                    <button data-tool-id="6">Cor de Fundo</button>
+                    <button data-tool-id="7">Cor Principal</button>
+                    <button data-tool-id="8">Salvar</button>
+                    <button data-tool-id="9">Abrir</button>
+                </div>
+
+                <input type="color" id="bg-color" name="bg-color" value="#ffffff">
+                <input type="color" id="fg-color" name="fg-color" value="#000000">
+                <input type="file" name="img-load" id="img-load">
+                
+            </div>
+
+            <div class="canva-sub">
+                <canvas id="canva" width="800" height="600">
+                    Não suportado!
+                </canvas>
+                <canvas id="canva-tmp" width="800" height="600">
+                    Não suportado!
+                </canvas>
+            </div>
+
+        </div>
+
+        <script>
+            var canvas = document.getElementById("canva")
+            var canvasTmp = document.getElementById("canva-tmp")
+            var ctx = canvas.getContext("2d", { willReadFrequently: true })
+            var bgColorPicker = document.getElementById("bg-color")
+            var fgColorPicker = document.getElementById("fg-color")
+            var imgFileInput = document.getElementById("img-load")
+
+            var toolsButtons = document.querySelectorAll("[data-tool-id]")
+            var current_tool = null
+            var current_color = [ 0, 0, 0, 255 ]
+            var background_color = [ 255, 255, 255, 255 ]
+            var drawed = false
+
+            function get_color() {
+                return `rgba(${current_color[0]}, ${current_color[1]}, ${current_color[2]}, ${current_color[3] / 255.0})`;
+            }
+
+            function get_bg_color() {
+                return `rgba(${background_color[0]}, ${background_color[1]}, ${background_color[2]}, ${background_color[3] / 255.0})`;
+            }
+
+            function download_image(){
+                let downloadLink = document.createElement('a')
+                downloadLink.setAttribute('download', 'desenho.png')
+                let dataURL = canvas.toDataURL('image/png')
+                let url = dataURL.replace(/^data:image\/png/,'data:application/octet-stream')
+                downloadLink.setAttribute('href', url)
+                downloadLink.click()
+            }
+
+            function hexToRgb(hex) {
+                // Expand shorthand form (e.g. "03F") to full form (e.g. "0033FF")
+                var shorthandRegex = /^#?([a-f\d])([a-f\d])([a-f\d])$/i;
+                hex = hex.replace(shorthandRegex, function(m, r, g, b) {
+                    return r + r + g + g + b + b;
+                });
+
+                var result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+                return result ? {
+                    r: parseInt(result[1], 16),
+                    g: parseInt(result[2], 16),
+                    b: parseInt(result[3], 16)
+                } : null;
+            }
+
+            const tools = [
+                {
+                    "name": "Pincel",
+                    "point": {x: 0, y: 0},
+                    "onmousedown": function(ev) {
+                        this.point.x = ev.offsetX
+                        this.point.y = ev.offsetY
+                        draw_circle(ev.offsetX, ev.offsetY, 5, get_color())
+                        drawed = true
+                    },
+                    "onmousemove": function(ev) {
+                        if(ev.buttons == 1) {
+                            draw_line(this.point.x, this.point.y, ev.offsetX, ev.offsetY, get_color(), 10)
+                            draw_circle(ev.offsetX, ev.offsetY, 5, get_color())
+                            this.point.x = ev.offsetX
+                            this.point.y = ev.offsetY
+                        }
+                    }
+                },
+                {
+                    "name": "Retângulo",
+                    "rect": {px: 0, py: 0, x: 0, y: 0, w: 0, h: 0},
+                    "onmousedown": function(ev) {
+                        drawed = true
+                        this.rect.x = ev.offsetX
+                        this.rect.y = ev.offsetY
+                        this.rect.px = ev.offsetX
+                        this.rect.py = ev.offsetY
+                        change_to_tmp_canva()
+                    },
+                    "onmousemove": function(ev) {
+                        if(ev.buttons == 1) {
+                            if (this.rect.px < ev.offsetX) {
+                                this.rect.x = this.rect.px
+                                this.rect.w = ev.offsetX - this.rect.px
+                            } else {
+                                this.rect.x = ev.offsetX
+                                this.rect.w = this.rect.px - ev.offsetX
+                            }
+
+                            if (this.rect.py < ev.offsetY) {
+                                this.rect.y = this.rect.py
+                                this.rect.h = ev.offsetY - this.rect.py
+                            } else {
+                                this.rect.y = ev.offsetY
+                                this.rect.h = this.rect.py - ev.offsetY
+                            }
+
+                            clear_area(0, 0, canvas.offsetWidth, canvas.offsetHeight)
+                            draw_fill_rect(this.rect.x, this.rect.y, this.rect.w, this.rect.h, get_color())
+                        }
+                    },
+                    "onmouseup": function(ev) {
+                        change_to_main_canva()
+                        draw_fill_rect(this.rect.x, this.rect.y, this.rect.w, this.rect.h, get_color())
+                        this.rect.w = 0
+                        this.rect.h = 0
+                    },
+                },
+                {
+                    "name": "Linha",
+                    "points": {x1: 0, y1: 0, x2: 0, y2: 0},
+                    "onmousedown": function(ev) {
+                        drawed = true
+                        this.points.x1 = ev.offsetX
+                        this.points.x2 = ev.offsetX
+                        this.points.y1 = ev.offsetY
+                        this.points.y2 = ev.offsetY
+                        change_to_tmp_canva()
+                    },
+                    "onmousemove": function(ev) {
+                        if(ev.buttons == 1) {
+                            this.points.x2 = ev.offsetX
+                            this.points.y2 = ev.offsetY
+                            clear_area(0, 0, canvas.offsetWidth, canvas.offsetHeight)
+                            draw_line(this.points.x1, this.points.y1, this.points.x2, this.points.y2, get_color())
+                        }
+                    },
+                    "onmouseup": function(ev) {
+                        change_to_main_canva()
+                        draw_line(this.points.x1, this.points.y1, this.points.x2, this.points.y2, get_color())
+                        this.points.x1 = 0
+                        this.points.x2 = 0
+                        this.points.y1 = 0
+                        this.points.y2 = 0
+                    }
+                },
+                {
+                    "name": "Circulo",
+                    "points": {x1: 0, y1: 0, x2: 0, y2: 0},
+                    "onmousedown": function(ev) {
+                        drawed = true
+                        this.points.x1 = ev.offsetX
+                        this.points.x2 = ev.offsetX
+                        this.points.y1 = ev.offsetY
+                        this.points.y2 = ev.offsetY
+                        change_to_tmp_canva()
+                    },
+                    "onmousemove": function(ev) {
+                        if(ev.buttons == 1) {
+                            this.points.x2 = ev.offsetX
+                            this.points.y2 = ev.offsetY
+                            let r = Math.sqrt( Math.pow(this.points.x2 - this.points.x1, 2) + Math.pow(this.points.y2 - this.points.y1, 2) )
+                            clear_area(0, 0, canvas.offsetWidth, canvas.offsetHeight)
+                            draw_circle(this.points.x1, this.points.y1, r, get_color())
+                        }
+                    },
+                    "onmouseup": function(ev) {
+                        change_to_main_canva()
+                        let r = Math.sqrt( Math.pow(this.points.x2 - this.points.x1, 2) + Math.pow(this.points.y2 - this.points.y1, 2) )
+                        draw_circle(this.points.x1, this.points.y1, r, get_color())
+                        this.points.x1 = 0
+                        this.points.x2 = 0
+                        this.points.y1 = 0
+                        this.points.y2 = 0
+                    }
+                },
+                {
+                    "name": "Preencher",
+                    "fillarea": function(ev) {
+                        drawed = true
+                        const pt = {x: ev.offsetX, y: ev.offsetY}
+                        const select_pixel = ctx.getImageData(pt.x, pt.y, 1, 1)
+                        const chage_color = select_pixel.data
+                        const new_color = new Uint8ClampedArray(current_color)
+
+                        const compare_color = (c1, c2) => {
+                            return c1[0] == c2[0] && c1[1] == c2[1] && c1[2] == c2[2] && c1[3] == c2[3]
+                        } 
+
+                        var stack = Array();
+                        stack.push({x: pt.x, y: pt.y, k: true}); // Push the seed
+                        while(stack.length > 0) {
+                            var currPoint = stack.pop()
+                            if(currPoint != null) { // Check if the point is not filled
+                                const sp = ctx.getImageData(currPoint.x, currPoint.y, 1, 1)
+
+                                if(compare_color(sp.data, chage_color)) {
+                                    stack.push({x: currPoint.x + 1, y: currPoint.y, k: true}) // Fill the east neighbour
+                                    stack.push({x: currPoint.x, y: currPoint.y + 1, k: true}) // Fill the south neighbour
+                                    stack.push({x: currPoint.x - 1, y: currPoint.y, k: true}) // Fill the west neighbour
+                                    stack.push({x: currPoint.x, y: currPoint.y - 1, k: true}) // Fill the north neighbour
+                                }
+
+                                sp.data[0] = new_color[0]; sp.data[1] = new_color[1];
+                                sp.data[2] = new_color[2]; sp.data[3] = new_color[3];
+                                ctx.putImageData(sp, currPoint.x, currPoint.y)
+
+                            }
+                        }
+
+                        canvasTmp.style.cursor = 'crosshair'
+                        
+                    },
+                    "onmousedown": function(ev) {
+                        canvasTmp.style.cursor = 'progress'
+                        setTimeout(() => {
+                            this.fillarea(ev)
+                        }, 100)
+                    }
+                },
+                {
+                    "name": "Borracha",
+                    "point": {x: 0, y: 0},
+                    "onmousedown": function(ev) {
+                        this.point.x = ev.offsetX
+                        this.point.y = ev.offsetY
+                        draw_circle(ev.offsetX, ev.offsetY, 5, get_bg_color())
+                        drawed = true
+                    },
+                    "onmousemove": function(ev) {
+                        if(ev.buttons == 1) {
+                            draw_line(this.point.x, this.point.y, ev.offsetX, ev.offsetY, get_bg_color(), 10)
+                            draw_circle(ev.offsetX, ev.offsetY, 5, get_bg_color())
+                            this.point.x = ev.offsetX
+                            this.point.y = ev.offsetY
+                        }
+                    }
+                },
+                {
+                    "name": "Cor de Fundo",
+                    "selectable": false,
+                    "onselected": function() {
+                        bgColorPicker.click()
+                    }
+                },
+                {
+                    "name": "Cor de Prncipal",
+                    "selectable": false,
+                    "onselected": function() {
+                        fgColorPicker.click()
+                    }
+                },
+                {
+                    "name": "Salvar",
+                    "selectable": false,
+                    "onselected": function() {
+                        download_image()
+                    }
+                },
+                {
+                    "name": "Abrir",
+                    "selectable": false,
+                    "onselected": function() {
+                        imgFileInput.click()
+                    }
+                }
+            ]
+
+            function change_to_tmp_canva() {
+                ctx = canvasTmp.getContext("2d")
+            }
+
+            function change_to_main_canva() {
+                draw_fill_rect(0, 0, canvas.offsetWidth, canvas.offsetHeight, "transparent")
+                ctx = canvas.getContext("2d", { willReadFrequently: true })
+            }
+
+            function clear_area(x, y, w, h) {
+                ctx.clearRect(x, y, w, h)
+            }
+
+            function draw_fill_rect(x, y, w, h, color) {
+                ctx.fillStyle = color
+                ctx.fillRect(x, y, w, h)
+            }
+
+            function draw_circle(x, y, radius, color) {
+                ctx.fillStyle = color
+                ctx.beginPath()
+                ctx.arc(x, y, radius, 0, 2 * Math.PI)
+                ctx.fill()
+            }
+
+            function draw_line(x1, y1, x2, y2, color, width = 1) {
+                ctx.strokeStyle = color
+                ctx.lineWidth = width
+                ctx.beginPath()
+                ctx.moveTo(x1, y1)
+                ctx.lineTo(x2, y2)
+                ctx.stroke()
+            }
+
+            function init() {
+
+                draw_fill_rect(0, 0, canvas.offsetWidth, canvas.offsetHeight, get_bg_color())
+
+                canvasTmp.onmousedown = (ev) => {
+                    if (current_tool != null && current_tool.onmousedown != null) current_tool.onmousedown(ev)
+                }
+
+                canvasTmp.onmousemove = (ev) => {
+                    if (current_tool != null && current_tool.onmousemove != null) current_tool.onmousemove(ev)
+                }
+
+                canvasTmp.onmouseup = (ev) => {
+                    if (current_tool != null && current_tool.onmouseup != null) current_tool.onmouseup(ev)
+                }
+
+                for(const el of toolsButtons) {
+                    el.onclick = () => {
+                        const tool_idx = el.getAttribute("data-tool-id")
+                        const tmp_tool = tools[parseInt(tool_idx)]
+
+                        if(tmp_tool.selectable != undefined) {
+                            if (tmp_tool != null && tmp_tool.onselected != null) tmp_tool.onselected()
+                            return
+                        }
+
+                        const selBtn = document.querySelector(".selected")
+                        selBtn.classList.remove("selected")
+                        el.classList.add("selected")
+                        current_tool = tmp_tool
+                        if (current_tool != null && current_tool.onselected != null) current_tool.onselected()
+                    }
+                }
+
+                current_tool = tools[0]
+
+                bgColorPicker.onchange = (ev) => {
+                    const val = hexToRgb(bgColorPicker.value)
+                    background_color[0] = val.r
+                    background_color[1] = val.g
+                    background_color[2] = val.b
+                    if(!drawed) {
+                        draw_fill_rect(0, 0, canvas.offsetWidth, canvas.offsetHeight, get_bg_color())
+                    }
+                }
+
+                fgColorPicker.onchange = (ev) => {
+                    const val = hexToRgb(fgColorPicker.value)
+                    current_color[0] = val.r
+                    current_color[1] = val.g
+                    current_color[2] = val.b
+                }
+
+                imgFileInput.onchange = (ev) => {
+
+                    const [file] = imgFileInput.files
+                    if (file) {
+                        //Loading of the home test image - img1
+                        var img1 = new Image()
+                        //drawing of the test image - img1
+                        img1.onload = function () {
+                            //draw background image
+                            ctx.drawImage(img1, 0, 0)
+                        }
+                        img1.src = URL.createObjectURL(file)
+                    }
+
+                }
+
+            }
+            init()
+
+        </script>
+        
+    </body>
+</html>
